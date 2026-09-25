@@ -1,6 +1,6 @@
 function dstatedt = Satellite(t,state)
 %%%stateinitial = [x0;y0;z0;xdot0;ydot0;zdot0];
-global BB invI I Is m nextMagUpdate lastMagUpdate lastSensorUpdate nextSensorUpdate
+global BB B_ECI magneticUTC0 invI I Is m nextMagUpdate lastMagUpdate lastSensorUpdate nextSensorUpdate
 global BfieldMeasured pqrMeasured BfieldNav pqrNav BfieldNavPrev pqrNavPrev current
 global Ir1Bcg Ir2Bcg Ir3Bcg n1 n2 n3 rwalphas maxSpeed maxAlpha ptpMeasured
 global ptpNavPrev ptpNav  fsensor rwSATURATED R Amax lmax CD 
@@ -34,28 +34,52 @@ rho = norm(r_pos);
 r_unit = r_pos/rho; 
 Fgrav = -(G*M*m/rho^2)*r_unit; 
 
-%% Modelo del Campo Magnético
-if t>=lastMagUpdate
+%% Modelo del Campo Magnético: World Magnetic Model 2025
+if t >= lastMagUpdate
     lastMagUpdate = lastMagUpdate + nextMagUpdate;
-    %%% Conversión de ECI cartesiano a latitud, longitud y altitud
-    phiE = 0;
-    thetaE = acos(z/rho);
-    psiE = atan2(y,x);
-    latitude = 90 - thetaE*180/pi;
-    longitude = psiE*180/pi;
-    altitude = (rho)/1000;    % km 
-    [BN,BE,BD] =  igrf ('01-Jan-2020', latitude, longitude, altitude, 'geocentric');
-    %%% Primero tenemos que convertir el sistema NED (North-East-Down) en ECI
-    %%% (Earth-Centered-Inertial) mediante la matriz TIB programada en otra
-    %%% subrutina. ¿FUTURO CAMBIO A OTRO IGRF?
-    BNED = [BN;BE;-BD];  %%PCI tiene down como up
-    %%% Para cambiar de NED a ECI se multiplica TIB*BNED
-    B_ECI = Euler2DCM(phiE,thetaE+pi,psiE)*BNED;
-    %%% Cambio de ECI a Body (la matriz de cambio está traspuesta para hacer el cambio correctamente)
-    BB = Body2ECI_quat(q0123)'*B_ECI;
-    %%Convertir de nanoteslas a teslas
-    BB = BB*1e-9;
+    %--------------------------------------------------------------
+    % Tiempo absoluto de la simulación
+    %--------------------------------------------------------------
+    utcDateTime = magneticUTC0 + seconds(t);
+    utc = datevec(utcDateTime);
+    %--------------------------------------------------------------
+    % ECI -> coordenadas geodésicas
+    %
+    % lla = [latitud, longitud, altura]
+    % latitud y longitud en grados
+    % altura en metros
+    %--------------------------------------------------------------
+
+    lla = eci2lla(r_pos',utc);
+
+    latitude  = lla(1);
+    longitude = lla(2);
+    altitude  = lla(3);
+
+    %--------------------------------------------------------------
+    % WMM2025
+    %
+    % XYZ = [North; East; Down]
+    % unidades: nT
+    %--------------------------------------------------------------
+    XYZ = wrldmagm( ...
+        altitude, ...
+        latitude, ...
+        longitude, ...
+        2025, ...
+        '2025');
+    B_NED = XYZ;
+    C_ECEF_NED = dcmecef2ned(latitude,longitude);
+    B_ECEF = C_ECEF_NED' * B_NED;
+    C_ECI_ECEF = dcmeci2ecef('IAU-2000/2006',utc);
+    B_ECI = C_ECI_ECEF' * B_ECEF;
 end
+
+%%% ECI -> Body
+BB = Body2ECI_quat(q0123)' * B_ECI;
+
+%%% Conversión de nT a T
+BB = BB*1e-9;
 
 %% Sensor y Navegación
 if t>=lastSensorUpdate
@@ -71,8 +95,11 @@ end
 magnetorquer_params
 
 %%% Añadir la Saturación
-if sum(abs(current)) > maxCurrent/1000
-    current = max(min(current, maxCurrent/1000), -maxCurrent/1000); %% min hace que un valor de current superior a 0.12A sea igual a 0.12 y max lo mismo pero al reves. 
+Imax = maxCurrent/1000;
+Ipeak = max(abs(current));
+
+if Ipeak > Imax
+    current = current * (Imax/Ipeak);
 end
 
 %%% Momento magnético

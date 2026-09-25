@@ -4,20 +4,23 @@ clc
 close all
 tic
 
-global BB m I Is invI mu nextMagUpdate lastMagUpdate lastSensorUpdate nextSensorUpdate
+global BB B_ECI m I Is invI mu nextMagUpdate lastMagUpdate lastSensorUpdate nextSensorUpdate
 global BfieldMeasured pqrMeasured ptpMeasured BfieldNav pqrNav ptpNav 
 global BfieldNavPrev pqrNavPrev ptpNavPrev current Ir1Bcg Ir2Bcg Ir3Bcg n1 n2 n3
 global maxSpeed maxAlpha Ir1B Ir2B Ir3B rwalphas Bdot DETUMBLE
 global fsensor MagBias AngBias EulerBias R Amax lmax CD
-global MagNoise AngNoise EulerNoise IrR Jinv rwSATURATED
-
+global MagNoise AngNoise EulerNoise IrR Jinv rwSATURATED magneticUTC0
 
 disp('Simulation started')
 nextMagUpdate = 1;
-lastMagUpdate = 0; 
+lastMagUpdate = 0;
 
-%%% Modelo IGRF (campo magnético) (FUTURO CAMBIO)
-addpath 'igrf/'
+% Fecha inicial de la simulación
+magneticUTC0 = datetime(2025,1,1,0,0,0,'TimeZone','UTC');
+
+% Campo magnético inicial en ECI
+B_ECI = [0;0;0];
+
 
 %%% Parámetros del planeta
 planet_params
@@ -48,9 +51,9 @@ theta0 = 0;
 psi0 = 0;
 ptp0 = [phi0; theta0; psi0];
 q0123_0 = EulerAngles2Quaternions(ptp0);
-p0 = 0.08;
+p0 = -0.08;
 q0 = -0.02;
-r0 = 0.02;
+r0 = 0.07;
 pqr0 = [p0; q0; r0];
 
 %%% Condiciones iniciales de las Ruedas de Reacción (rws)
