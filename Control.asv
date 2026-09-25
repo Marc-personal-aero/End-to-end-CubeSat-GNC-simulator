@@ -1,0 +1,62 @@
+function [current,rwalphas] = Control(BfieldNav,pqrNav,ptpNav,w123)
+global IrR Jinv Bdot rwSATURATED DETUMBLE
+global Ir1B Ir2B Ir3B n1 n2 n3
+magtorquer_params
+
+%%% BDOT CONTROLLER %%%
+if DETUMBLE
+    k = 67200; %%Activa los magnetopares en alguna de estas dos condiciones
+    current = k*cross(pqrNav,BfieldNav)/(n*A); %%% current = gain * (angular velocity x magnetic field) / scale
+elseif rwSATURATED
+    % Reaction wheel desaturation
+    Hrw = Ir1B*w123(1)*n1 + Ir2B*w123(2)*n2 + Ir3B*w123(3)*n3;
+    k = 0.001;   % Gain de desaturacion [1/s]
+    Bnorm2 = dot(BfieldNav,BfieldNav);
+    if Bnorm2 > 0
+        mu_desat = k*cross(Hrw,BfieldNav)/Bnorm2;
+        current = mu_desat/(n*A);
+    else
+        current = [0;0;0];
+    end
+else
+    current = [0;0;0]; %%Desactiva los magnetopares
+
+end
+
+%%% RW CONTROLLER %%%
+%reaction_wheel_params
+sumabspqrNav = sum(abs(pqrNav));
+KP = eye(3)*1.0*IrR(1,1);
+KD = eye(3)*45*IrR(1,1);
+ptpcommand = [1;0;0];
+pqrcommand = [0;0;0];
+
+% Error de actitud y velocidad angular
+attitudeError = ptpNav - ptpcommand;
+rateError = pqrNav - pqrcommand;
+
+% Momento deseado SOBRE EL SATELITE
+Mdesired = -KP*attitudeError - KD*rateError;
+if ~DETUMBLE
+    if rwSATURATED
+        % Momento generado por los magnetopares
+        muB = current*n*A;
+        LMN_MTQ = cross(muB,BfieldNav);
+        % Las ruedas compensan el par de los magnetopares
+        % para mantener el momento deseado del satelite
+        rwalphas = Jinv*(LMN_MTQ - Mdesired);
+    else
+        % Control normal de actitud:
+        % el par de la rueda sobre el satelite es -J*rwalphas
+        rwalphas = -Jinv*Mdesired;
+    end
+else
+    Mdesired = [0;0;0];
+    rwalphas = [0;0;0];
+end
+if ~DETUMBLE && sumabspqrNav < 0.3 && (rwSATURATED == 1) && sum(abs(w123)) < 0.1
+    rwSATURATED = 0;
+    disp('Reaction wheels at zero and system detumbled')
+end
+
+
